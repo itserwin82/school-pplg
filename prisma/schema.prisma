@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Model User (Untuk Autentikasi)
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String?
+  role          String    @default("SISWA") // ✅ FIXED: Gunakan String, bukan Enum, untuk SQLite
+  
+  accounts      Account[]
+  sessions      Session[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  siswaProfile  Siswa?
+  guruProfile   Guru?
+
+  jadwalList    Jadwal[]  @relation("GuruJadwal")
+}
+
+// 2. Model Guru
+model Guru {
+  id            String          @id @default(cuid())
+  nip           String          @unique
+  namaLengkap   String
+  userId        String          @unique
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Relasi
+  kelasWali     Kelas?          @relation("WaliKelas")
+  mapelDiampu   MataPelajaran[] @relation("GuruMapel")
+  
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+// 3. Model Kelas
+model Kelas {
+  id          String   @id @default(cuid())
+  nama        String
+  tingkat     String
+  jurusan     String   @default("PPLG")
+  
+  waliKelasId String?  @unique
+  waliKelas   Guru?    @relation("WaliKelas", fields: [waliKelasId], references: [id])
+  
+  siswaList   Siswa[]
+  jadwalList  Jadwal[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 4. Model Siswa
+model Siswa {
+  id          String     @id @default(cuid())
+  nis         String     @unique
+  namaLengkap String
+  kelasId     String
+  kelas       Kelas      @relation(fields: [kelasId], references: [id])
+  userId      String     @unique
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  presensiList Presensi[]
+  presensiDetail PresensiDetail[]
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+// 5. Model Mata Pelajaran
+model MataPelajaran {
+  id           String   @id @default(cuid())
+  kode         String   @unique
+  nama         String
+  jamPelajaran Int      @default(4)
+  
+  // Relasi
+  guruList     Guru[]   @relation("GuruMapel")
+  jadwalList   Jadwal[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// 6. Model Jadwal
+model Jadwal {
+  id         String   @id @default(cuid())
+  hari       String
+  jamMulai   String
+  jamSelesai String
+  
+  mapelId    String
+  mapel      MataPelajaran @relation(fields: [mapelId], references: [id])
+  
+  guruId     String
+  guru       User     @relation("GuruJadwal", fields: [guruId], references: [id])
+  
+  kelasId    String
+  kelas      Kelas    @relation(fields: [kelasId], references: [id])
+  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([kelasId, hari, jamMulai])
+
+  sesiList     SesiPembelajaran[]
+}
+
+// 7. Model Presensi
+model Presensi {
+  id         String   @id @default(cuid())
+  tanggal    DateTime
+  status     String   // "HADIR", "SAKIT", "IZIN", "ALPHA"
+  keterangan String?
+  
+  siswaId    String
+  siswa      Siswa    @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([siswaId, tanggal])
+}
+
+// 8. Model NextAuth (Wajib untuk Auth.js)
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// 7. Tabel Sesi Pembelajaran (Setiap pertemuan mapel)
+model SesiPembelajaran {
+  id             String           @id @default(cuid())
+  tanggal        DateTime
+  jamMulai       String
+  jamSelesai     String
+  status         String           @default("BELUM_DIMULAI")
+  
+  qrToken        String?          @unique
+  qrExpiredAt    DateTime?
+  catatan        String?
+  
+  jadwalId       String
+  jadwal         Jadwal           @relation(fields: [jadwalId], references: [id], onDelete: Cascade)
+  presensiDetail PresensiDetail[]
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([jadwalId, tanggal])
+}
+
+// 8. Tabel Presensi Detail (Per siswa per sesi)
+model PresensiDetail {
+  id        String   @id @default(cuid())
+  waktuScan DateTime?
+  
+  status    String   @default("ALPHA")
+  keterangan String?
+  source    String   @default("MANUAL_GURU")
+  
+  // Relasi
+  sesiId    String
+  sesi      SesiPembelajaran @relation(fields: [sesiId], references: [id], onDelete: Cascade)
+  siswaId   String
+  siswa     Siswa            @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  
+  // Audit trail
+  createdBy String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([sesiId, siswaId])
+}
